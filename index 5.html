@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Deepcast - Halaman Uji</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  body { margin:0; font-family: system-ui, sans-serif; background:#06142b; color:#e6f1ff; padding:14px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .muted { color:#8fb0d8; font-size:12px; }
+  .card { background:#0d2347; border-radius:12px; padding:12px; margin:10px 0; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  button, select { font-size:15px; padding:11px 14px; border-radius:10px; border:0; }
+  button { background:#1f7cff; color:#fff; font-weight:600; flex:1; }
+  button:disabled { background:#33476a; color:#8fa3c4; }
+  #tarik { background:#ff4d6d; font-size:20px; padding:18px; width:100%; }
+  select { background:#14305e; color:#fff; flex:1; }
+  pre { white-space:pre-wrap; word-break:break-word; font-size:11px; background:#020a18; padding:10px; border-radius:10px; max-height:260px; overflow:auto; }
+  .stat b { color:#7fd3ff; }
+</style>
+</head>
+<body>
+<h1>Deepcast - Halaman Uji</h1>
+<div class="muted">Untuk menguji backend saja. Tampilan game asli dibuat nanti.</div>
+
+<div class="card stat" id="stat">Belum login.</div>
+
+<div class="card">
+  <div class="row"><button id="btnInit">1. Login (init)</button></div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <select id="area">
+      <option value="shallow">Shallow (Lv 1)</option>
+      <option value="reef">Reef (Lv 5)</option>
+      <option value="trench">Trench (Lv 12)</option>
+      <option value="crystal">Crystal (Lv 20)</option>
+      <option value="abyss">Abyss (Lv 30)</option>
+    </select>
+    <button id="btnCast">2. Lempar Kail</button>
+  </div>
+  <div id="status" class="muted" style="margin-top:8px">-</div>
+  <div style="margin-top:8px"><button id="tarik" disabled>TARIK!</button></div>
+  <div class="row" style="margin-top:8px"><button id="btnLepas" disabled>Lepas (gagal)</button></div>
+</div>
+
+
+<div class="card">
+  <div class="muted">3. Tas &amp; jual ikan</div>
+  <div class="row" style="margin-top:6px"><button id="btnTas">Lihat Tas</button></div>
+  <div id="tas" class="muted" style="margin-top:8px"></div>
+  <div class="row" style="margin-top:8px">
+    <select id="maxR"><option value="common">s/d Common</option><option value="rare" selected>s/d Rare</option><option value="epic">s/d Epic</option><option value="legendary">s/d Legendary</option><option value="secret">Semua</option></select>
+    <button id="btnJualSemua">Jual Semua</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="muted">4. Hadiah iklan (uji: tanpa iklan sungguhan)</div>
+  <div class="row" style="margin-top:6px">
+    <button data-ad="energy">+3 Energi</button><button data-ad="quiz_bonus">Bonus Kuis</button><button data-ad="scratch">Gosokan</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="muted">5. Peringkat</div>
+  <div class="row" style="margin-top:6px">
+    <select id="lbCat"><option value="heaviest">Terberat</option><option value="valuable">Termahal</option><option value="dex">Koleksi</option><option value="level">Level</option></select>
+    <select id="lbPer"><option value="daily">Hari ini</option><option value="weekly">Minggu ini</option><option value="all">Semua</option></select>
+    <button id="btnLb">Lihat</button>
+  </div>
+  <div id="lb" class="muted" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
+  <div class="muted">6. Pakai skin (punya item setelah gacha)</div>
+  <div class="row" style="margin-top:6px"><button id="btnSkin">Lihat Kosmetik</button></div>
+</div>
+
+<div class="card">
+  <div class="muted">7. Gacha kosmetik (1 tiket atau 500 koin game per tarikan)</div>
+  <div class="row" style="margin-top:6px"><button id="btnG1">Tarik 1x</button><button id="btnG10">Tarik 10x</button></div>
+  <div id="gacha" class="muted" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
+  <div class="muted">8. Gosok kartu (1 gratis/hari, tambahan dari iklan "Gosokan")</div>
+  <div class="row" style="margin-top:6px"><button id="btnGosok">Gosok!</button></div>
+  <div id="gosok" class="muted" style="margin-top:8px"></div>
+</div>
+
+<div class="card"><div class="muted">Log respons server:</div><pre id="log"></pre></div>
+
+<script>
+var API_URL = 'https://novaria666.app.n8n.cloud/webhook/deepcast';
+var tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+var castId = null, biteTimer = null;
+
+function log(label, obj) {
+  var el = document.getElementById('log');
+  el.textContent = label + '\n' + JSON.stringify(obj, null, 2) + '\n\n' + el.textContent;
+}
+function setStatus(t) { document.getElementById('status').textContent = t; }
+
+function api(action, payload) {
+  var initData = tg ? tg.initData : '';
+  if (!initData) { alert('Buka halaman ini dari bot Telegram Deepcast ya.'); return Promise.reject('no initData'); }
+  return fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: action, initData: initData, payload: payload || {} })
+  }).then(function (r) { return r.json(); })
+    .then(function (j) { log(action, j); return j; })
+    .catch(function (e) { log(action + ' ERROR', String(e)); throw e; });
+}
+
+function showUser(u) {
+  document.getElementById('stat').innerHTML =
+    'Halo <b>' + (u.first_name || '-') + '</b> | Level <b>' + u.level + '</b> (EXP ' + u.exp + '/' + u.exp_to_next + ')<br>' +
+    'Energi <b>' + u.energy + '</b>/10 | Koin game <b>' + u.coin_game + '</b> | Koin reward <b>' + u.coin_reward + '</b> | Tiket <b>' + u.tickets + '</b><br>' +
+    'Pity epic ' + u.pity_epic + '/30 | Pity legendary ' + u.pity_legend + '/90 | Gosok gratis: <b>' + (u.scratch_free ? 'ada' : 'sudah') + '</b> | Gosok ekstra: <b>' + (u.scratch_extra || 0) + '</b>';
+}
+
+document.getElementById('btnInit').onclick = function () {
+  api('init').then(function (j) { if (j.ok) showUser(j.data.user); });
+};
+
+document.getElementById('btnCast').onclick = function () {
+  document.getElementById('tarik').disabled = true;
+  document.getElementById('btnLepas').disabled = true;
+  if (biteTimer) clearTimeout(biteTimer);
+  setStatus('Melempar kail...');
+  api('cast_start', { area: document.getElementById('area').value }).then(function (j) {
+    if (!j.ok) { setStatus('Gagal: ' + j.error); return; }
+    castId = j.data.cast_id;
+    document.getElementById('btnLepas').disabled = false;
+    setStatus('Menunggu ikan menggigit... (energi sisa ' + j.data.energy + ')');
+    biteTimer = setTimeout(function () {
+      setStatus('IKAN MENGGIGIT! Tekan TARIK sekarang (kurang dari 30 detik)');
+      document.getElementById('tarik').disabled = false;
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('heavy');
+    }, j.data.bite_delay_ms + 100);
+  });
+};
+
+function finish(success) {
+  if (!castId) return;
+  document.getElementById('tarik').disabled = true;
+  document.getElementById('btnLepas').disabled = true;
+  if (biteTimer) clearTimeout(biteTimer);
+  var id = castId; castId = null;
+  api('cast_finish', { cast_id: id, success: success }).then(function (j) {
+    if (!j.ok) { setStatus('Gagal: ' + j.error); return; }
+    if (!j.data.caught) { setStatus('Ikan lepas.'); return; }
+    var f = j.data.fish;
+    var m = f.mutations.length ? ' [' + f.mutations.map(function (x) { return x.name; }).join(', ') + ']' : '';
+    setStatus('Dapat ' + f.name + ' (' + f.rarity + ') ' + f.weight_kg + ' kg' + m + ', nilai ' + f.value +
+      ' | +' + j.data.exp_gained + ' EXP' + (j.data.leveled_up ? ' | NAIK LEVEL ke ' + j.data.level + '!' : ''));
+  });
+}
+document.getElementById('tarik').onclick = function () { finish(true); };
+document.getElementById('btnLepas').onclick = function () { finish(false); };
+
+function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function refresh(){ api('init').then(function (j) { if (j.ok) showUser(j.data.user); }); }
+function loadTas(){
+  api('inventory').then(function (j) {
+    if (!j.ok) return;
+    var d=j.data, el=document.getElementById('tas');
+    el.innerHTML='Ikan: <b>'+d.fish_count+'</b> | Total nilai <b>'+d.fish_total_value+'</b> | Spesies <b>'+d.dex_count+'</b><br>';
+    d.fish.slice(0,30).forEach(function(f){
+      var b=document.createElement('button'); b.style.cssText='margin:4px 0;width:100%;font-size:13px;background:#14305e';
+      b.textContent='Jual '+f.name+' ('+f.rarity+') '+f.weight_kg+'kg = '+f.value;
+      b.onclick=function(){ api('sell_fish',{fish_id:f.fish_id}).then(function(){ loadTas(); refresh(); }); };
+      el.appendChild(b);
+    });
+    var cs=d.cosmetics||[], eq=d.equipped||{};
+    var h=document.createElement('div'); h.style.marginTop='10px';
+    h.innerHTML='<b>Kosmetik ('+cs.length+')</b>'+(cs.length?'':'<br>Belum punya kosmetik');
+    el.appendChild(h);
+    cs.forEach(function(c){
+      var on=(eq[c.type]===c.item_id);
+      var b=document.createElement('button'); b.style.cssText='margin:4px 0;width:100%;font-size:13px;background:#2a1f4e;color:'+(RC[c.rarity]||'#fff');
+      b.textContent=(on?'[DIPAKAI] ':'Pakai ')+c.name+' ('+c.type+', '+c.rarity+') x'+c.count;
+      b.onclick=function(){ api('equip_skin',{item_id:on?'':c.item_id,type:c.type}).then(function(){ loadTas(); }); };
+      el.appendChild(b);
+    });
+  });
+}
+document.getElementById('btnTas').onclick=loadTas;
+document.getElementById('btnJualSemua').onclick=function(){ api('sell_all',{max_rarity:document.getElementById('maxR').value}).then(function(){ loadTas(); refresh(); }); };
+Array.prototype.forEach.call(document.querySelectorAll('[data-ad]'),function(b){ b.onclick=function(){ api('ad_reward',{kind:b.getAttribute('data-ad')}).then(refresh); }; });
+document.getElementById('btnLb').onclick=function(){
+  api('leaderboard',{category:document.getElementById('lbCat').value,period:document.getElementById('lbPer').value}).then(function(j){
+    if(!j.ok) return; var d=j.data, h='';
+    d.top.forEach(function(r){ h+=r.rank+'. '+esc(r.first_name)+' - <b>'+r.score+'</b>'+(r.detail?' ('+esc(r.detail.species_name)+')':'')+'<br>'; });
+    h+='<br>Peringkatmu: <b>'+(d.me.rank||'-')+'</b> dari '+d.total_players;
+    document.getElementById('lb').innerHTML=h||'Belum ada data';
+  });
+};
+document.getElementById('btnSkin').onclick=loadTas;
+
+var RC={common:'#9fb3d1',rare:'#4da3ff',epic:'#c06bff',legendary:'#ffb02e'};
+function gacha(n){ api('gacha_pull',{count:n}).then(function(j){
+  var el=document.getElementById('gacha');
+  if(!j.ok){ el.innerHTML='Gagal: <b>'+j.error+'</b>'; return; }
+  el.innerHTML=j.data.results.map(function(r){ return '<span style="color:'+RC[r.rarity]+'">'+r.name+' ('+r.rarity+')'+(r.is_new?' BARU':'')+(r.pity?' [pity]':'')+'</span>'; }).join('<br>')+
+    '<br>Pakai: '+j.data.spent.tickets+' tiket + '+j.data.spent.coin_game+' koin';
+  refresh(); }); }
+document.getElementById('btnG1').onclick=function(){ gacha(1); };
+document.getElementById('btnG10').onclick=function(){ gacha(10); };
+document.getElementById('btnGosok').onclick=function(){ api('scratch_claim',{}).then(function(j){
+  var el=document.getElementById('gosok');
+  if(!j.ok){ el.innerHTML='Gagal: <b>'+j.error+'</b>'; return; }
+  var p=j.data.prize, t=p.kind==='coin_game'?('+'+p.amount+' koin game'):p.kind==='ticket'?'+1 tiket':(p.name+' ('+p.type+', '+p.rarity+')'+(p.is_new?' BARU':''));
+  el.innerHTML='Dapat: <b>'+t+'</b> ('+(j.data.source==='free'?'gratis':'dari iklan')+')';
+  refresh(); }); };
+</script>
+</body>
+</html>
