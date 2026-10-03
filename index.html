@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Deepcast - Halaman Uji</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  body { margin:0; font-family: system-ui, sans-serif; background:#06142b; color:#e6f1ff; padding:14px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .muted { color:#8fb0d8; font-size:12px; }
+  .card { background:#0d2347; border-radius:12px; padding:12px; margin:10px 0; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  button, select { font-size:15px; padding:11px 14px; border-radius:10px; border:0; }
+  button { background:#1f7cff; color:#fff; font-weight:600; flex:1; }
+  button:disabled { background:#33476a; color:#8fa3c4; }
+  #tarik { background:#ff4d6d; font-size:20px; padding:18px; width:100%; }
+  select { background:#14305e; color:#fff; flex:1; }
+  pre { white-space:pre-wrap; word-break:break-word; font-size:11px; background:#020a18; padding:10px; border-radius:10px; max-height:260px; overflow:auto; }
+  .stat b { color:#7fd3ff; }
+</style>
+</head>
+<body>
+<h1>Deepcast - Halaman Uji</h1>
+<div class="muted">Untuk menguji backend saja. Tampilan game asli dibuat nanti.</div>
+
+<div class="card stat" id="stat">Belum login.</div>
+
+<div class="card">
+  <div class="row"><button id="btnInit">1. Login (init)</button></div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <select id="area">
+      <option value="shallow">Shallow (Lv 1)</option>
+      <option value="reef">Reef (Lv 5)</option>
+      <option value="trench">Trench (Lv 12)</option>
+      <option value="crystal">Crystal (Lv 20)</option>
+      <option value="abyss">Abyss (Lv 30)</option>
+    </select>
+    <button id="btnCast">2. Lempar Kail</button>
+  </div>
+  <div id="status" class="muted" style="margin-top:8px">-</div>
+  <div style="margin-top:8px"><button id="tarik" disabled>TARIK!</button></div>
+  <div class="row" style="margin-top:8px"><button id="btnLepas" disabled>Lepas (gagal)</button></div>
+</div>
+
+<div class="card"><div class="muted">Log respons server:</div><pre id="log"></pre></div>
+
+<script>
+var API_URL = 'https://novaria666.app.n8n.cloud/webhook/deepcast';
+var tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+var castId = null, biteTimer = null;
+
+function log(label, obj) {
+  var el = document.getElementById('log');
+  el.textContent = label + '\n' + JSON.stringify(obj, null, 2) + '\n\n' + el.textContent;
+}
+function setStatus(t) { document.getElementById('status').textContent = t; }
+
+function api(action, payload) {
+  var initData = tg ? tg.initData : '';
+  if (!initData) { alert('Buka halaman ini dari bot Telegram Deepcast ya.'); return Promise.reject('no initData'); }
+  return fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: action, initData: initData, payload: payload || {} })
+  }).then(function (r) { return r.json(); })
+    .then(function (j) { log(action, j); return j; })
+    .catch(function (e) { log(action + ' ERROR', String(e)); throw e; });
+}
+
+function showUser(u) {
+  document.getElementById('stat').innerHTML =
+    'Halo <b>' + (u.first_name || '-') + '</b> | Level <b>' + u.level + '</b> (EXP ' + u.exp + '/' + u.exp_to_next + ')<br>' +
+    'Energi <b>' + u.energy + '</b>/10 | Koin game <b>' + u.coin_game + '</b> | Koin reward <b>' + u.coin_reward + '</b> | Tiket <b>' + u.tickets + '</b>';
+}
+
+document.getElementById('btnInit').onclick = function () {
+  api('init').then(function (j) { if (j.ok) showUser(j.data.user); });
+};
+
+document.getElementById('btnCast').onclick = function () {
+  document.getElementById('tarik').disabled = true;
+  document.getElementById('btnLepas').disabled = true;
+  if (biteTimer) clearTimeout(biteTimer);
+  setStatus('Melempar kail...');
+  api('cast_start', { area: document.getElementById('area').value }).then(function (j) {
+    if (!j.ok) { setStatus('Gagal: ' + j.error); return; }
+    castId = j.data.cast_id;
+    document.getElementById('btnLepas').disabled = false;
+    setStatus('Menunggu ikan menggigit... (energi sisa ' + j.data.energy + ')');
+    biteTimer = setTimeout(function () {
+      setStatus('IKAN MENGGIGIT! Tekan TARIK sekarang (kurang dari 30 detik)');
+      document.getElementById('tarik').disabled = false;
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('heavy');
+    }, j.data.bite_delay_ms + 100);
+  });
+};
+
+function finish(success) {
+  if (!castId) return;
+  document.getElementById('tarik').disabled = true;
+  document.getElementById('btnLepas').disabled = true;
+  if (biteTimer) clearTimeout(biteTimer);
+  var id = castId; castId = null;
+  api('cast_finish', { cast_id: id, success: success }).then(function (j) {
+    if (!j.ok) { setStatus('Gagal: ' + j.error); return; }
+    if (!j.data.caught) { setStatus('Ikan lepas.'); return; }
+    var f = j.data.fish;
+    var m = f.mutations.length ? ' [' + f.mutations.map(function (x) { return x.name; }).join(', ') + ']' : '';
+    setStatus('Dapat ' + f.name + ' (' + f.rarity + ') ' + f.weight_kg + ' kg' + m + ', nilai ' + f.value +
+      ' | +' + j.data.exp_gained + ' EXP' + (j.data.leveled_up ? ' | NAIK LEVEL ke ' + j.data.level + '!' : ''));
+  });
+}
+document.getElementById('tarik').onclick = function () { finish(true); };
+document.getElementById('btnLepas').onclick = function () { finish(false); };
+</script>
+</body>
+</html>
